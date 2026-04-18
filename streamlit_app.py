@@ -50,9 +50,12 @@ def streamlit():
         with messages.chat_message('human'):
             st.write(use_input)
         answer = st.session_state.system.ask_question(question = use_input, stream = True)
-        st.session_state.message.append(('ai', answer))
         with messages.chat_message("ai"):
-            st.write(answer)
+            if isinstance(answer, str):
+                st.write(answer)
+            else:
+                answer = st.write_stream(answer)
+        st.session_state.message.append(('ai', answer))
 
 if __name__ == '__main__':
     streamlit()
