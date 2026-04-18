@@ -9,7 +9,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 import torch
-import os
 import pickle
 
 
