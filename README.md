@@ -1,14 +1,15 @@
 ---
-title: Streamlit Template Space
+title: Rag Cook 1
 emoji: 🚀
 colorFrom: red
 colorTo: red
 sdk: docker
 app_port: 8501
 tags:
-  - streamlit
+- streamlit
 pinned: false
-short_description: Streamlit template space
+short_description: 回答简单的做饭建议
+license: apache-2.0
 ---
 
 # Welcome to Streamlit!
