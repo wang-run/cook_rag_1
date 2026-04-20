@@ -11,6 +11,7 @@ from langchain_core.documents import Document
 import logging
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 import pickle
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -109,22 +110,37 @@ class DataPreparationModule:
                 break
         
         #提取菜品名称
+        content = doc.page_content
         doc.metadata['dish_name'] = file_path.stem
         
         #分析难度等级
-        content = doc.page_content
-        if "★★★★★" in content:
-            doc.metadata["difficulty"] = "非常困难"
-        elif '★★★★' in content:
-            doc.metadata['difficulty'] = '困难'
-        elif '★★★' in content:
-            doc.metadata['difficulty'] = '中等'
-        elif '★★' in content:
-            doc.metadata['difficulty'] = '简单'
-        elif '★' in content:
-            doc.metadata['difficulty'] = '非常简单'
+        stars_match = re.search(r'★{1,5}', content)
+
+        if stars_match:
+            star_count = len(stars_match.group()) # 数数有几个星星
+            difficulty_map = {
+                5: "非常困难",
+                4: "困难",
+                3: "中等",
+                2: "简单",
+                1: "非常简单"
+            }
+            doc.metadata['difficulty'] = difficulty_map.get(star_count, "未知")
         else:
-            doc.metadata['difficulty'] = '未知'
+            doc.metadata['difficulty'] = "未知"
+
+        # if "★★★★★" in content:
+        #     doc.metadata["difficulty"] = "非常困难"
+        # elif '★★★★' in content:
+        #     doc.metadata['difficulty'] = '困难'
+        # elif '★★★' in content:
+        #     doc.metadata['difficulty'] = '中等'
+        # elif '★★' in content:
+        #     doc.metadata['difficulty'] = '简单'
+        # elif '★' in content:
+        #     doc.metadata['difficulty'] = '非常简单'
+        # else:
+        #     doc.metadata['difficulty'] = '未知'
     
     @classmethod
     def get_supported_categories(cls) -> List[str]:

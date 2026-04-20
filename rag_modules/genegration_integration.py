@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_community.chat_models.moonshot import MoonshotChat #使用kimi的聊天大模型
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 
 logger = logging.getLogger(__name__)
 
@@ -145,68 +145,84 @@ class GenerationIntegrationModule:
         return response
         
     
-    def query_rewrite(self, query: str) -> str:
-        """智能查询重写 - 让大模型判断是否需要查询重写
-
-        :param query: 原始查询
-        :type query: str
-        :return: 重写后的查询或者不需要改写时的原查询
-        :rtype: str
-        """
+    def query_rewrite(self, query: str) -> dict: # 建议返回类型标为 dict
+        """智能查询重写 - 让大模型判断是否需要查询重写"""
 
         prompt = PromptTemplate(
-            template = 
-            """
-            你是一个智能分析用户问题的助手。请根据用户的查询，判断是否需要对用户的查询进行重写。
-
+            template="""
+            任务：
+            你是一个烹饪领域的查询分析专家。请分析用户的输入，提取元数据过滤条件（难度和种类），并根据查询的明确程度决定是否需要重写。
             原始查询：{query}
 
-            分析规则：
-            1、**具体明确的查询**（直接放回用户的查询，不用改写）
-                -包含具体菜品名称：如“宫保鸡丁怎么做”、“红烧肉的制作方法”
-                - 明确的制作询问：如"蛋炒饭需要什么食材"、"糖醋排骨的步骤"
-                - 具体的烹饪技巧：如"如何炒菜不粘锅"、"怎样调制糖醋汁"
+            第一阶段：元数据提取规则
+            从查询中识别以下两项。如果用户完全没有提到相关信息，请将对应项设为 null，严禁强行猜测或联想。
+            1. 难度映射标准：
+            “一颗星 / 非常简单 / 极其简单” -> 非常简单
+            “两颗星 / 简单 / 好做” -> 简单
+            “三颗星 / 中等 / 普通难度” -> 中等
+            “四颗星 / 困难 / 有挑战” -> 困难
+            “五颗星 / 非常困难 / 厨神级” -> 非常困难
+            2. 菜品种类映射标准：
+            “饮料 / 喝的 / 饮品 / 水” -> 饮品
+            “海鲜 / 鱼 / 虾 / 蟹” -> 水产
+            其他分类直接映射：荤菜、素菜、汤品、甜品、早餐、主食、调料
 
-            2. **模糊不清的查询**（需要重写）：
-                - 过于宽泛：如"做菜"、"有什么好吃的"、"推荐个菜"
-                - 缺乏具体信息：如"川菜"、"素菜"、"简单的"
-                - 口语化表达：如"想吃点什么"、"有饮品推荐吗"
+            第二阶段：查询改写逻辑
+            规则 1：直接返回（不重写）
+            触发条件：包含具体菜品名称或具体制作技巧。
+            动作：rewrite_query 保持用户原话。
+            
+            规则 2：重写增强（需重写）
+            触发条件：查询涉及口语化表达或过于宽泛。
+            动作：补全语义并替换为标准词。
 
-            重写原则：
-            - 保持原意不变
-            - 增加相关烹饪术语
-            - 优先推荐简单易做的
-            - 保持简洁性
-
-            示例：
-            - "做菜" → "简单易做的家常菜谱"
-            - "有饮品推荐吗" → "简单饮品制作方法"
-            - "推荐个菜" → "简单家常菜推荐"
-            - "川菜" → "经典川菜菜谱"
-            - "宫保鸡丁怎么做" → "宫保鸡丁怎么做"（保持原查询）
-            - "红烧肉需要什么食材" → "红烧肉需要什么食材"（保持原查询）
-
-                请输出最终查询（如果不需要重写就返回原查询）:
+            第三阶段：输出格式要求
+            请严格按照 JSON 格式输出，不要包含任何多余的解释：
+            {{
+                "filters": {{
+                    "difficulty": "映射后的标准难度名称或 null",
+                    "category": "映射后的标准分类名称或 null"
+                }},
+                "rewrite_query": "重写后的查询字符串或用户原话",
+                "is_clear": true
+            }}
             """,
-            input_variables = ["query"]
+            input_variables=["query"]
         )
+
+        # 注意：在 PromptTemplate 中，如果你想表示原始的大括号，需要写双大括号 {{ }}
+        # 否则 Python 会把它当成变量占位符导致报错
 
         chain = (
-            {"query" : RunnablePassthrough()}
+            {"query": RunnablePassthrough()}
             | prompt
             | self.llm
-            | StrOutputParser()
+            | JsonOutputParser()
         )
 
-        response = chain.invoke(query).strip()
+        try:
+            response = chain.invoke(query)
+            
+            # 安全地获取值
+            is_clear = response.get("is_clear", True)
+            rewrite_query = response.get("rewrite_query", query)
 
-        #记录重写结果
-        if response != query:
-            logger.info(f"原查询{query}重写为{response}")
-        else:
-            logger.info(f"原查询无需重写：{query}")
+            # 记录重写结果
+            if not is_clear: # 如果不是明确查询，说明发生了重写
+                logger.info(f"原查询 [{query}] 重写为 [{rewrite_query}]")
+            else:
+                logger.info(f"原查询无需重写：[{query}]")
 
-        return response
+            return response
+
+        except Exception as e:
+            logger.error(f"查询重写解析失败: {e}")
+            # 发生异常时进行兜底，保证主流程不崩
+            return {
+                "filters": {"difficulty": None, "category": None},
+                "rewrite_query": query,
+                "is_clear": True
+            }
     
     def query_router(self, query : str) -> str:
         """查询路由 - 根据查询类型选择不同的处理方式
@@ -299,7 +315,7 @@ class GenerationIntegrationModule:
         :rtype: str
         """
 
-        context = self._bulid_context(context_docs)
+        context = self._build_context(context_docs)
 
         prompt = ChatPromptTemplate.from_template(
             """
@@ -427,11 +443,11 @@ class GenerationIntegrationModule:
             #提取文档的相关信息，后面一起放在字符串中
             metadata_info = f"【食谱{i}】"
             if "dish_name" in doc.metadata:
-                metadata_info += f"名称:{doc.metadata["dish_name"]}"
+                metadata_info += f"名称:{doc.metadata['dish_name']}"
             if "category" in doc.metadata:
-                metadata_info += f"| 分类：{doc.metadata["category"]}"
+                metadata_info += f"| 分类：{doc.metadata['category']}"
             if "difficulty" in doc.metadata:
-                metadata_info += f"| 难度等级：{doc.metadata["difficulty"]}"
+                metadata_info += f"| 难度等级：{doc.metadata['difficulty']}"
 
             #构建文档文本
             doc_text = f"{metadata_info}\n{doc.page_content}"
@@ -439,7 +455,6 @@ class GenerationIntegrationModule:
             #检查长度，防止超出模型的上下文长度
             if current_length + len(doc_text) > max_length:
                 break
-
             context_parts.append(doc_text)
             current_length += len(doc_text)
         

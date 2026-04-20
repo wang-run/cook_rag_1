@@ -58,10 +58,15 @@ class RetrievalOptimizationModule:
         :return: 相似文档列表
         :rtype: List[Document]
         """
+        clean_filters = {}
+        if filters:
+            clean_filters = {k: v for k, v in filters.items() if v is not None}
+        #备份原始的 search_kwargs，防止污染后续查询
+        old_kwargs = self.vector_retriever.search_kwargs.copy()
         #这里需要塞入filters，直接再setup_retrievers塞入的话每次询问都需要重新构建检索库
         if filters:
             #如果本次有过滤条件，就临时赛进检索器的配置里面
-            self.vector_retriever.search_kwargs['filter'] = filters
+            self.vector_retriever.search_kwargs['filter'] = clean_filters
         else:
             #没有过滤条件，要把上一次的残留清空
             if "filter" in self.vector_retriever.search_kwargs:
@@ -69,6 +74,7 @@ class RetrievalOptimizationModule:
 
         #分别获取向量检索器和BM25检索器的结果
         vector_docs = self.vector_retriever.invoke(query)
+        logger.info(f"向量过滤检索到的文档数为：{len(vector_docs)}")
         raw_bm25_docs = self.bm25_retirever.invoke(query)
 
         #先进行应用元数据过滤
@@ -99,6 +105,9 @@ class RetrievalOptimizationModule:
 
         #使用RRF重排
         reranked_docs = self._rrf_rerank(vector_docs, bm25_docs)
+
+        self.vector_retriever.search_kwargs = old_kwargs
+        
         return reranked_docs[:top_k]
     
     def _rrf_rerank(self, vector_docs: List[Document], bm25_docs: List[Document], k :int = 60) -> List[Document]:

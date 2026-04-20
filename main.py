@@ -145,22 +145,24 @@ class RecipeRAGSystem:
 
         if route_type != 'unknown':
             #2.根据路由类型来进行重写(list不用重写，list意义明确)
-            if route_type == 'list':
-                rewritten_query = question
-                print(f"列表和未知查询保持原样：{rewritten_query}")
-            else:
-                #其他类型进行重写
-                print("智能分析查询....")
-                rewritten_query = self.generation_module.query_rewrite(query=question)
-            
+            # if route_type == 'list':
+            #     rewritten_query = question
+            #     print(f"列表和未知查询保持原样：{rewritten_query}")
+            # else:
+            #     #其他类型进行重写
+            #     print("智能分析查询....")
+            #     rewritten_query = self.generation_module.query_rewrite(query=question)
+            rewritten_query = self.generation_module.query_rewrite(query=question)
+            question = rewritten_query['rewrite_query']
+                
+            print(f"重写的的查询为：{rewritten_query["rewrite_query"]}")
             print("查询相关文档...")
             #这里使用原查询进行元数据匹配的过滤操作
-            filters = self._extract_filters_from_query(question)
+            filters = self._extract_filters_from_query(rewritten_query)
             
             print(f"应用过滤条件：{filters}")
             #这个函数里面包含检查filter是否有效，无效返回没有过滤的文档
             relevant_chunks = self.retrieval_module.filtered_hybrid_search(query = question, top_k = self.config.top_k, filters=filters)
-            
             #显示检索到的子块信息
             if relevant_chunks:
                 chunk_info = []
@@ -221,36 +223,16 @@ class RecipeRAGSystem:
             return self.generation_module.generate_unknown(query=question)
 
 
-    def _extract_filters_from_query(self, query: str) -> dict:
-        """从用户的查询中提取元数据过滤条件
-        元数据中用户可以使用的数据是菜品种类和困难度
+    def _extract_filters_from_query(self, re_write_query: str) -> dict:
+        """在改写后的用户查询中提取相应的过滤关键词
 
-        :param query: 用户的原始查询
+        :param query: 改写后的用户的查询
         :type query: str
         :return: 过滤条件：菜品种类或困难度
         :rtype: dict
         """
-        filters = {}
-        #这里创建列表防止出现两个种类
-        found_categories = []
-        #提取分类关键词
-        category_keywords = DataPreparationModule.get_supported_categories()#返回的是字典
-        for cat in category_keywords:
-            if cat in query:
-                found_categories.append(cat)
-        if found_categories:
-            filters['category'] = found_categories
         
-        #提取困难度关键词
-        difficulty_keywords = DataPreparationModule.get_supported_difficulties()
-        found_difficulties = []
-        for difficulty in difficulty_keywords:
-            if difficulty in query:
-                found_difficulties.append(difficulty)
-        if found_difficulties:
-            filters["difficulty"] = found_difficulties
-        
-        return filters
+        return re_write_query["filters"]
     
     def search_by_category(self, category : str, query: str = "") -> List[str]:
         """按分类搜寻菜品
